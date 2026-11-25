@@ -81,7 +81,7 @@ type WalletSheetProps = {
   pearls: readonly WalletPearl[];
   mining: MiningSummary | null;
   onClose: () => void;
-  onPrepareSend: (recipient: string, amount: string, speed?: FeeSpeed, chosenPearls?: readonly string[], withTip?: boolean) => Promise<PreparedSend>;
+  onPrepareSend: (recipient: string, amount: string, speed?: FeeSpeed, chosenPearls?: readonly string[], withTip?: boolean, sendAll?: boolean) => Promise<PreparedSend>;
   /** Open Send to tip Pearlet (Mainnet). */
   onSupport?: () => void;
   onSend: (payment: PreparedSend) => Promise<SendOutcome>;
@@ -498,14 +498,29 @@ function SuccessMark() {
   );
 }
 
-function SheetHeading({ icon, title, description }: {
+type PearlBadge = 'in' | 'out' | 'self';
+
+function SheetHeading({ icon, title, description, pearl }: {
   icon: IconName | null;
   title: string;
   description?: string;
+  /** Show the pearl with a direction badge instead of a plain icon. */
+  pearl?: PearlBadge;
 }) {
   return (
     <View style={styles.heading}>
-      {icon ? (
+      {pearl ? (
+        <View style={styles.pearlStamp}>
+          <Image source={pearlArt} style={styles.pearlStampArt} accessibilityIgnoresInvertColors />
+          <View style={[styles.pearlBadge, pearl === 'in' && styles.pearlBadgeIn]}>
+            {pearl === 'self' ? (
+              <Feather name="repeat" color="#FFFFFF" size={11} strokeWidth={2.4} />
+            ) : (
+              <Glyph name={pearl === 'in' ? 'receive' : 'send'} size={12} color="#FFFFFF" weight={2.3} />
+            )}
+          </View>
+        </View>
+      ) : icon ? (
         <View style={styles.stamp}>
           <PearlButtonFill variant="primary" />
           {headingGlyphs[icon] ? (
@@ -551,11 +566,21 @@ function SheetButton({ label, onPress, icon, glyph, disabled = false, busy = fal
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <View style={styles.reviewRow}>
+      <Text style={[styles.reviewLabel, strong && styles.reviewStrong]}>{label}</Text>
+      <Text selectable style={[styles.reviewValue, strong && styles.reviewStrong]}>{value}</Text>
+    </View>
+  );
+}
+
+/** A full address, label above it, so it can be checked character by character. */
+function AddressBlock({ label, address }: { label: string; address: string }) {
+  return (
+    <View style={styles.addressBlock}>
       <Text style={styles.reviewLabel}>{label}</Text>
-      <Text selectable style={styles.reviewValue}>{value}</Text>
+      <Text selectable style={styles.reviewAddress}>{address}</Text>
     </View>
   );
 }
@@ -587,6 +612,8 @@ function SendContent({
   const [recipient, setRecipient] = useState(initialRequest?.address ?? '');
   const [amount, setAmount] = useState(initialRequest?.amountGrains ? grainsToDecimal(initialRequest.amountGrains) : '');
   const [speed, setSpeed] = useState<FeeSpeed>('normal');
+  // Max: spend everything and take the fee (and tip) out of the amount.
+  const [sendAll, setSendAll] = useState(false);
   const { preferences: sendPreferences, setPreference: setSendPreference } = usePreferences();
   const tipAvailable = network === 'mainnet';
   const withTip = tipAvailable && sendPreferences.supportTip;
@@ -644,9 +671,20 @@ function SendContent({
   const addressPrefix = hrp + '1';
   const currency = network === 'testnet2' ? 'testnet PRL' : 'PRL';
   const canPrepare = networkReady && spendableGrains !== null && spendableGrains > 0;
+  const maxGrains = chosenPearls ? chosenGrains : spendableGrains;
   const balanceHint = spendableGrains === null
     ? 'Spendable balance unavailable'
-    : `${formatPrl(spendableGrains)} PRL available`;
+    : sendAll
+      ? 'Sending everything. The network fee comes out of this amount.'
+      : `${formatPrl(spendableGrains)} PRL available`;
+
+  function fillMax() {
+    if (!maxGrains) return;
+    haptic('selection');
+    setSendAll(true);
+    setAmount(grainsToDecimal(maxGrains));
+    setError('');
+  }
   let unavailableMessage = '';
   if (!networkReady) {
     unavailableMessage = 'Connect to ' + networkName + ' to review a transfer.';
@@ -664,6 +702,7 @@ function SendContent({
       grains = 0;
     }
     if (!withTip) return 'Optional. Supports an independent wallet.';
+    if (sendAll) return 'Taken from the amount. Thank you!';
     if (!amount.trim()) return 'Added on top of the amount. Thank you!';
     return grains ? '+' + formatPrl(grains) + ' PRL on top. Thank you!' : 'Too small to tip on this amount.';
   }
@@ -674,8 +713,17 @@ function SendContent({
     setWorking('prepare');
     setError('');
     Keyboard.dismiss();
+    // Typing the whole spendable balance means "send everything": the fee comes out of it.
+    let everything = sendAll;
+    if (!everything && !chosenPearls && spendableGrains) {
+      try {
+        everything = parseSendAmount(amount) === spendableGrains;
+      } catch {
+        everything = false;
+      }
+    }
     try {
-      setReview(await onPrepareSend(recipient, amount, speed, chosenPearls?.length ? chosenPearls : undefined, withTip));
+      setReview(await onPrepareSend(recipient, amount, speed, chosenPearls?.length ? chosenPearls : undefined, withTip, everything));
       if (knownContact) markUsed(knownContact.address);
     } catch (failure) {
       haptic('error');
@@ -729,25 +777,24 @@ function SendContent({
             <SheetHeading icon={null} title="Sending…" description={'Submitting to ' + networkName + '.'} />
           </>
         ) : (
-          <SheetHeading icon="arrow-up" title="Review transfer" description={networkName} />
+          <SheetHeading icon="arrow-up" pearl="out" title="Review transfer" description={networkName} />
         )}
+        <Text style={styles.activityAmount}>{formatPrl(review.amountGrains)} PRL</Text>
         <View style={styles.reviewList}>
-          <Text style={styles.reviewLabel}>Recipient</Text>
-          <Text selectable style={styles.reviewAddress}>{review.recipient}</Text>
+          <AddressBlock label={knownContact ? 'To ' + knownContact.name : 'To'} address={review.recipient} />
           <View style={styles.reviewDivider} />
-          <ReviewRow label="Amount" value={`${formatPrl(review.amountGrains)} PRL`} />
           <ReviewRow label="Network fee" value={`${formatPrl(review.feeGrains)} PRL`} />
           {review.tipGrains ? <ReviewRow label="Pearlet tip" value={`${formatPrl(review.tipGrains)} PRL`} /> : null}
-          <ReviewRow label="Speed" value={speedLabels[speed].title} />
+          <ReviewRow label="Speed" value={speedLabels[speed].title + ', ' + speedLabels[speed].hint} />
           {chosenPearls?.length ? (
             <ReviewRow label="Pearls" value={chosenPearls.length === 1 ? '1 chosen' : chosenPearls.length + ' chosen'} />
           ) : null}
-          <ReviewRow label="Total" value={`${formatPrl(review.amountGrains + review.feeGrains + (review.tipGrains ?? 0))} PRL`} />
+          <View style={styles.reviewDivider} />
+          <ReviewRow strong label="Total" value={`${formatPrl(review.amountGrains + review.feeGrains + (review.tipGrains ?? 0))} PRL`} />
         </View>
         {!networkReady && !working ? (
           <Text accessibilityRole="alert" style={styles.error}>Connect to {networkName} to submit this transfer.</Text>
         ) : null}
-        {working !== 'broadcast' ? <Text style={styles.centerHint}>Confirm with your device authentication.</Text> : null}
         <SheetButton
           label={working ? 'Submitting transfer' : 'Authenticate and send'}
           glyph={working ? undefined : 'send'}
@@ -769,7 +816,7 @@ function SendContent({
 
   return (
     <>
-      <SheetHeading icon="arrow-up" title="Send PRL" description={networkName} />
+      <SheetHeading icon="arrow-up" pearl="out" title="Send PRL" description={networkName} />
       <View style={styles.fields}>
         {contacts.length ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contactRow}>
@@ -922,7 +969,21 @@ function SendContent({
           ) : null}
         </View>
         <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Amount</Text>
+          <View style={styles.fieldHeader}>
+            <Text style={styles.fieldLabel}>Amount</Text>
+            {maxGrains ? (
+              <PressScale
+                accessibilityRole="button"
+                accessibilityLabel="Send the maximum, fee included"
+                disabled={Boolean(working)}
+                feedback={null}
+                onPress={fillMax}
+                style={styles.fieldAction}
+              >
+                <Text style={styles.textButtonLabel}>Max</Text>
+              </PressScale>
+            ) : null}
+          </View>
           <View style={styles.amountField}>
             <TextInput
               accessibilityLabel="Amount in PRL"
@@ -936,9 +997,10 @@ function SendContent({
                   return;
                 }
                 setAmount(decimal);
+                setSendAll(false);
                 setError('');
               }}
-              onSubmitEditing={reviewSend}
+              onSubmitEditing={() => Keyboard.dismiss()}
               placeholder="0.00"
               placeholderTextColor={muted}
               ref={amountInput}
@@ -988,7 +1050,10 @@ function SendContent({
               accessibilityLabel={chosenPearls ? 'Choose pearls automatically' : 'Choose which pearls to spend'}
               disabled={Boolean(working)}
               feedback="selection"
-              onPress={() => setChosenPearls(chosenPearls ? null : [])}
+              onPress={() => {
+                setSendAll(false);
+                setChosenPearls(chosenPearls ? null : []);
+              }}
               style={styles.fieldAction}
             >
               <Text style={styles.textButtonLabel}>{chosenPearls ? 'Automatic' : 'Choose'}</Text>
@@ -1007,9 +1072,12 @@ function SendContent({
                     disabled={Boolean(working)}
                     feedback="selection"
                     scaleTo={0.98}
-                    onPress={() => setChosenPearls(selected
-                      ? chosenPearls.filter((id) => id !== pearl.id)
-                      : [...chosenPearls, pearl.id])}
+                    onPress={() => {
+                      setSendAll(false);
+                      setChosenPearls(selected
+                        ? chosenPearls.filter((id) => id !== pearl.id)
+                        : [...chosenPearls, pearl.id]);
+                    }}
                     style={[styles.pearlChoice, selected && styles.speedOptionSelected]}
                   >
                     <Image source={pearlArt} style={[styles.pearlDot, !selected && styles.pearlDotIdle]} />
@@ -1530,10 +1598,13 @@ function ReceiveContent({
     <>
       <SheetHeading
         icon="arrow-down"
+        pearl="in"
         title={mining ? 'Mining payouts' : 'Receive PRL'}
         description={mining
           ? 'Use this stable Mainnet address as the payout address in your miner or pool.'
-          : 'Use this address to receive PRL on Pearl ' + label + '.'}
+          : fresh
+            ? 'A new address for each payment keeps your history private. Old addresses keep working.'
+            : 'Share this address to receive PRL on Pearl ' + label + '.'}
       />
       <View style={styles.addressCard}>
         <View
@@ -1553,48 +1624,68 @@ function ReceiveContent({
           </Text>
         ) : null}
       </View>
-      {!mining ? (
-        requesting ? (
-          <View style={styles.fields}>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Amount to request</Text>
-              <View style={styles.amountField}>
-                <TextInput
-                  accessibilityLabel="Amount to request in PRL"
-                  inputMode="decimal"
-                  maxLength={26}
-                  onChangeText={(text) => setRequestAmount(text.replace(',', '.').replace(/[^0-9.]/g, ''))}
-                  placeholder="0.00"
-                  placeholderTextColor={muted}
-                  style={[styles.input, styles.amountInput]}
-                  value={requestAmount}
-                />
-                <Text style={styles.amountUnit}>PRL</Text>
-              </View>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Note (optional)</Text>
+      {requesting && !mining ? (
+        <View style={styles.fields}>
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Amount to request</Text>
+            <View style={styles.amountField}>
               <TextInput
-                accessibilityLabel="Note for this request"
-                maxLength={60}
-                onChangeText={setRequestLabel}
-                placeholder="What it's for"
+                accessibilityLabel="Amount to request in PRL"
+                autoFocus
+                inputMode="decimal"
+                maxLength={26}
+                onChangeText={(text) => setRequestAmount(text.replace(',', '.').replace(/[^0-9.]/g, ''))}
+                placeholder="0.00"
                 placeholderTextColor={muted}
-                style={styles.input}
-                value={requestLabel}
+                style={[styles.input, styles.amountInput]}
+                value={requestAmount}
               />
+              <Text style={styles.amountUnit}>PRL</Text>
             </View>
-            {requestError ? <Text accessibilityRole="alert" style={styles.error}>{requestError}</Text> : null}
           </View>
-        ) : (
-          <SecondaryButton label="Request an amount" onPress={() => setRequesting(true)} />
-        )
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Note (optional)</Text>
+            <TextInput
+              accessibilityLabel="Note for this request"
+              maxLength={60}
+              onChangeText={setRequestLabel}
+              placeholder="What it's for"
+              placeholderTextColor={muted}
+              style={styles.input}
+              value={requestLabel}
+            />
+          </View>
+          {requestError ? <Text accessibilityRole="alert" style={styles.error}>{requestError}</Text> : null}
+        </View>
       ) : null}
       <CopyButton
         value={requestUri ?? address}
         label={mining ? 'Copy payout address' : requestUri ? 'Copy payment request' : 'Copy address'}
         copiedLabel={mining ? 'Copied payout address' : requestUri ? 'Copied payment request' : 'Copied address'}
       />
+      {!mining ? (
+        <View style={styles.actionRow}>
+          <ActionChip
+            icon={requesting ? 'x' : 'plus'}
+            label={requesting ? 'No amount' : 'Amount'}
+            onPress={() => {
+              setRequesting(!requesting);
+              setRequestAmount('');
+              setRequestLabel('');
+            }}
+          />
+          {onNewAddress ? (
+            <ActionChip
+              icon="refresh-cw"
+              label={makingAddress ? 'Making…' : 'New address'}
+              disabled={makingAddress}
+              onPress={() => void makeNewAddress()}
+            />
+          ) : null}
+          {onOpenMining ? <ActionChip icon="cpu" label="Mining" onPress={onOpenMining} /> : null}
+        </View>
+      ) : null}
+      {newAddressError ? <Text accessibilityRole="alert" style={styles.error}>{newAddressError}</Text> : null}
       {!backupVerified && onOpenBackup ? (
         <PressScale
           accessibilityRole="button"
@@ -1609,15 +1700,6 @@ function ReceiveContent({
           <Feather name="chevron-right" size={15} color={palette.faint} />
         </PressScale>
       ) : null}
-      {!mining && onNewAddress ? (
-        <>
-          <SecondaryButton label={makingAddress ? 'Making a new address…' : 'New address'} onPress={() => void makeNewAddress()} disabled={makingAddress} />
-          <Text style={styles.copyWarning}>
-            {newAddressError || 'A new address for each payment keeps your history more private. Old addresses keep working.'}
-          </Text>
-        </>
-      ) : null}
-      {onOpenMining ? <SecondaryButton label="Mining" onPress={onOpenMining} /> : null}
       {onBack ? <SecondaryButton label="Back to Receive" onPress={onBack} /> : null}
     </>
   );
@@ -1640,6 +1722,30 @@ function ExplorerButton({ network, txid }: { network: PearlNetwork; txid: string
       <SecondaryButton label="View on explorer" onPress={open} />
       {failed ? <Text accessibilityRole="alert" style={styles.error}>Could not open the explorer.</Text> : null}
     </>
+  );
+}
+
+function ActionChip({ icon, label, onPress, disabled = false }: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <PressScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      feedback="selection"
+      scaleTo={0.95}
+      onPress={onPress}
+      pressableStyle={styles.actionTarget}
+      style={[styles.actionChip, disabled && styles.pressed]}
+    >
+      <Feather name={icon} size={17} color={accent} strokeWidth={1.9} />
+      <Text style={styles.actionChipLabel} numberOfLines={1}>{label}</Text>
+    </PressScale>
   );
 }
 
@@ -2381,18 +2487,26 @@ function ActivityContent({ network, activity }: { network: PearlNetwork; activit
 
   return (
     <>
-      <SheetHeading icon={icon} title={activity.title} description={activity.subtitle} />
+      <SheetHeading icon={icon} pearl={activity.kind === 'self' ? 'self' : received ? 'in' : 'out'} title={activity.title} description={activity.subtitle} />
       <Text style={[styles.activityAmount, received && styles.receivedAmount]}>
         {sign}{amount} PRL
       </Text>
       <View style={styles.reviewList}>
-        {activity.recipient ? <ReviewRow label={received ? 'From' : 'To'} value={activity.recipient} /> : null}
-        {activity.feeGrains !== undefined ? (
-          <ReviewRow label="Network fee" value={`${formatPrl(activity.feeGrains)} PRL`} />
+        {activity.recipient ? (
+          <>
+            <AddressBlock label={received ? 'From' : 'To'} address={activity.recipient} />
+            <View style={styles.reviewDivider} />
+          </>
         ) : null}
-        <Text style={styles.reviewLabel}>Transaction ID</Text>
-        <Text selectable style={styles.reviewAddress}>{activity.id}</Text>
+        {activity.feeGrains !== undefined ? (
+          <>
+            <ReviewRow label="Network fee" value={`${formatPrl(activity.feeGrains)} PRL`} />
+            <View style={styles.reviewDivider} />
+          </>
+        ) : null}
+        <AddressBlock label="Transaction ID" address={activity.id} />
       </View>
+      <CopyButton value={activity.id} label="Copy transaction ID" copiedLabel="Copied transaction ID" secondary />
       <ExplorerButton network={network} txid={activity.id} />
     </>
   );
@@ -2490,6 +2604,19 @@ const styles = StyleSheet.create({
   contactSaveRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   contactNameInput: { flex: 1 },
   speedRow: { flexDirection: 'row', gap: 8 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: -4 },
+  actionTarget: { flex: 1 },
+  actionChip: {
+    minHeight: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 19, 31, 0.08)',
+    backgroundColor: palette.glassStrong,
+  },
+  actionChipLabel: { color: ink, fontSize: 12, fontWeight: '600' },
   speedTarget: { flex: 1 },
   speedOption: {
     minHeight: 54,
@@ -2663,6 +2790,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
+  pearlStamp: { width: 56, height: 56, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
+  pearlStampArt: { width: 56, height: 56, resizeMode: 'contain' },
+  pearlBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ink,
+    borderWidth: 2,
+    borderColor: '#FBFAFD',
+  },
+  pearlBadgeIn: { backgroundColor: palette.positive },
   stamp: {
     width: 52,
     height: 52,
@@ -2823,6 +2966,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  reviewStrong: { color: ink, fontSize: 15, fontWeight: '700' },
+  addressBlock: { gap: 4 },
   reviewDivider: {
     height: 1,
     backgroundColor: 'rgba(22, 19, 31, 0.08)',

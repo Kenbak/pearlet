@@ -562,6 +562,7 @@ export function usePearlWallet(network: PearlNetwork, walletId: string = mainWal
     speed: FeeSpeed = 'normal',
     chosenPearls?: readonly string[],
     withTip = false,
+    sendAll = false,
   ): Promise<PreparedSend> {
     const current = identity.current;
     if (!current || journal.current || inSend.current) throw new Error('Wait for the pending transfer to sync.');
@@ -570,7 +571,7 @@ export function usePearlWallet(network: PearlNetwork, walletId: string = mainWal
     const controller = new AbortController();
     prepareRequest.current = controller;
     try {
-      const plan = await preparePayment(current, recipient, amount, controller.signal, speed, chosenPearls, withTip);
+      const plan = await preparePayment(current, recipient, amount, controller.signal, speed, chosenPearls, withTip, sendAll);
       if (controller.signal.aborted || !alive.current || journal.current || inSend.current
         || AppState.currentState !== 'active') {
         throw new Error('Open a new send review.');

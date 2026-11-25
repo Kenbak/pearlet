@@ -19,7 +19,7 @@ import {
   type PearlSpendInput,
 } from './pearl-keys.ts';
 import { pearlNetworks, type PearlNetwork } from './pearl-network.ts';
-import { supportAddress, supportTipGrains } from './support.ts';
+import { supportAddress, supportTipBasisPoints, supportTipGrains } from './support.ts';
 import { describePearls, summarizeMining, type MiningSummary, type WalletPearl } from './pearls.ts';
 
 const grainsPerPrl = 100_000_000;
@@ -304,6 +304,43 @@ export function selectPayment(
   return null;
 }
 
+/**
+ * Send everything: spend every given input with no change output and take the network fee
+ * (and the optional tip) out of the amount. Any leftover grains from rounding go to the fee.
+ */
+export function selectSendAll(
+  amounts: readonly number[],
+  feeRate: number,
+  network: PearlNetwork = 'testnet2',
+  withTip = false,
+): { count: number; amountGrains: number; tipGrains: number; feeGrains: number } | null {
+  if (!Number.isSafeInteger(feeRate) || feeRate < 1 || feeRate > pearlNetworks[network].maxFeeRate) {
+    throw new Error('The indexer returned an unexpected fee rate. Refresh and try again.');
+  }
+  let count = 0;
+  let total = 0;
+  for (const value of amounts) {
+    if (estimatePaymentVsize(count + 1, false, withTip ? 1 : 0) > maxStandardVsize) break;
+    total += value;
+    if (!Number.isSafeInteger(total)) throw new Error('The total inputs exceed the supported amount range.');
+    count += 1;
+  }
+  if (!count) return null;
+
+  if (withTip) {
+    const available = total - estimatePaymentVsize(count, false, 1) * feeRate;
+    let amountGrains = Math.floor((available * 10_000) / (10_000 + supportTipBasisPoints));
+    while (amountGrains + 1 + supportTipGrains(amountGrains + 1) <= available) amountGrains += 1;
+    const tipGrains = supportTipGrains(amountGrains);
+    if (tipGrains && amountGrains >= dustGrains) {
+      return { count, amountGrains, tipGrains, feeGrains: total - amountGrains - tipGrains };
+    }
+  }
+  const amountGrains = total - estimatePaymentVsize(count, false, 0) * feeRate;
+  if (amountGrains < dustGrains) return null;
+  return { count, amountGrains, tipGrains: 0, feeGrains: total - amountGrains };
+}
+
 /** How soon the transfer should confirm; picks Blockbook's fee estimate target. */
 export type FeeSpeed = 'slow' | 'normal' | 'fast';
 export const feeSpeedBlocks: Record<FeeSpeed, 1 | 2 | 6> = { fast: 1, normal: 2, slow: 6 };
@@ -316,6 +353,7 @@ export async function preparePayment(
   speed: FeeSpeed = 'normal',
   chosenPearls?: readonly string[],
   withTip = false,
+  sendAll = false,
 ): Promise<SpendPlan> {
   const { address, network, miningAddress } = identity;
   const { label, hrp, coinbaseMaturity } = pearlNetworks[network];
@@ -325,10 +363,11 @@ export async function preparePayment(
   if (walletAddresses(identity).some(owned => owned.address === recipient)) {
     throw new Error(`Choose another ${label} wallet as the recipient.`);
   }
-  const amountGrains = parseSendAmount(amountInput);
-  const tipGrains = withTip && network === 'mainnet' && recipient !== supportAddress ? supportTipGrains(amountGrains) : 0;
+  const amountGrains = sendAll ? 0 : parseSendAmount(amountInput);
+  const tipGrains = sendAll ? 0 : withTip && network === 'mainnet' && recipient !== supportAddress ? supportTipGrains(amountGrains) : 0;
   const tipOutput = tipGrains ? { address: supportAddress, amountGrains: tipGrains } : undefined;
   const outputTotal = amountGrains + tipGrains;
+  const tipAllowed = withTip && network === 'mainnet' && recipient !== supportAddress;
   const extraOutputs = tipOutput ? 1 : 0;
   const [tip, utxos, feeRate] = await Promise.all([
     getPearlTip(network, signal),
@@ -353,10 +392,14 @@ export async function preparePayment(
   if (chosen && candidates.length !== chosen.size) {
     throw new Error('Some chosen pearls are no longer spendable. Choose again.');
   }
-  if (!selectPayment(candidates.map(utxo => toSafeGrains(utxo.valueGrains)), outputTotal, feeRate, network, extraOutputs)) {
+  if (sendAll) {
+    if (!selectSendAll(candidates.map(utxo => toSafeGrains(utxo.valueGrains)), feeRate, network, tipAllowed)) {
+      throw new Error(`Your spendable ${label} balance is too small to cover the network fee.`);
+    }
+  } else if (!selectPayment(candidates.map(utxo => toSafeGrains(utxo.valueGrains)), outputTotal, feeRate, network, extraOutputs)) {
     throw new Error(chosen
       ? 'The chosen pearls cannot cover the amount and fee.'
-      : `Your confirmed ${label} balance cannot cover the amount and fee.`);
+      : `Your ${label} balance cannot cover this amount plus the network fee. Tap Max to send everything, fee included.`);
   }
 
   for (const candidate of candidates) {
@@ -380,6 +423,7 @@ export async function preparePayment(
 
     inputs.push(input);
     amounts.push(input.amountGrains);
+    if (sendAll) continue;
     const selection = selectPayment(amounts, outputTotal, feeRate, network, extraOutputs);
     if (selection) return {
       identity,
@@ -393,6 +437,24 @@ export async function preparePayment(
       changeAddress: change.address,
       inputs,
     };
+  }
+  if (sendAll) {
+    const selection = selectSendAll(amounts, feeRate, network, tipAllowed);
+    if (selection) {
+      const sweepTip = selection.tipGrains ? { address: supportAddress, amountGrains: selection.tipGrains } : undefined;
+      return {
+        identity,
+        address,
+        recipient,
+        amountGrains: selection.amountGrains,
+        ...(sweepTip ? { tip: sweepTip, tipGrains: selection.tipGrains } : {}),
+        feeGrains: selection.feeGrains,
+        changeGrains: 0,
+        changeIndex: change.index,
+        changeAddress: change.address,
+        inputs: inputs.slice(0, selection.count),
+      };
+    }
   }
   throw new Error(`Your spendable ${label} balance cannot cover the amount and fee.`);
 }

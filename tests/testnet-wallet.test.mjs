@@ -4,7 +4,8 @@ import test from 'node:test';
 import { broadcastTestnetTransaction } from '../src/pearl-indexer.ts';
 import { estimatePaymentVsize } from '../src/pearl-keys.ts';
 import { createMnemonic, openPearlWallet } from '../src/pearl-keys.ts';
-import { changeTarget, formatPrl, parseSendAmount, selectPayment } from '../src/testnet-wallet.ts';
+import { changeTarget, formatPrl, parseSendAmount, selectPayment, selectSendAll } from '../src/testnet-wallet.ts';
+import { supportTipGrains } from '../src/support.ts';
 
 test('converts decimal PRL to exact grains and rejects dust or excess precision', () => {
   assert.equal(parseSendAmount('.01234567'), 1_234_567);
@@ -30,6 +31,27 @@ test('coin selection includes the vsize fee and amounts below the change dust th
     { count: 1, feeGrains: withChangeFee, changeGrains: 333 });
   assert.equal(selectPayment([7_500, 7_500], 10_000, rate).count, 2);
   assert.throws(() => selectPayment([20_000], 10_000, Number.MAX_SAFE_INTEGER), /fee rate/);
+});
+
+test('send everything takes the fee and tip out of the amount and leaves no change', () => {
+  const rate = 6;
+  const fee = estimatePaymentVsize(2, false) * rate;
+  assert.deepEqual(selectSendAll([60_000_000, 40_000_000], rate, 'mainnet'),
+    { count: 2, amountGrains: 100_000_000 - fee, tipGrains: 0, feeGrains: fee });
+
+  const tipped = selectSendAll([100_000_000], rate, 'mainnet', true);
+  const tipFee = estimatePaymentVsize(1, false, 1) * rate;
+  assert.equal(tipped.tipGrains, supportTipGrains(tipped.amountGrains));
+  assert.equal(tipped.amountGrains + tipped.tipGrains + tipped.feeGrains, 100_000_000);
+  assert.ok(tipped.feeGrains >= tipFee && tipped.feeGrains < tipFee + 3);
+  assert.ok(tipped.amountGrains + 1 + supportTipGrains(tipped.amountGrains + 1) > 100_000_000 - tipFee);
+
+  // Too small to tip: everything goes to the recipient without a tip output.
+  const small = selectSendAll([20_000], rate, 'mainnet', true);
+  assert.equal(small.tipGrains, 0);
+  assert.equal(small.amountGrains, 20_000 - estimatePaymentVsize(1, false) * rate);
+  assert.equal(selectSendAll([estimatePaymentVsize(1, false) * rate + 332], rate), null);
+  assert.equal(selectSendAll([], rate), null);
 });
 
 const origin = 'https://blockbook.testnet2.pearlnetwork.net/api/v2';
