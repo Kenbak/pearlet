@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="196 196 632 632" width="632" height="632">
+  <!-- Pearlet mark without the tile: the pearl pressed into the background. -->
+  <defs>
+    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9C1DE" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#E6E0F2" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#FBF9FE" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="lip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="1"/>
+    </linearGradient>
+    <radialGradient id="shade" cx="512" cy="540" r="246" gradientUnits="userSpaceOnUse">
+      <stop offset="0.7" stop-color="#3A3058" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#3A3058" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nacre" cx="0.36" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.35" stop-color="#F7F3FC"/>
+      <stop offset="0.68" stop-color="#E2DBF0"/>
+      <stop offset="0.9" stop-color="#C6C4E0"/>
+      <stop offset="1" stop-color="#AFAACF"/>
+    </radialGradient>
+    <radialGradient id="iris" cx="0.8" cy="0.76" r="0.5">
+      <stop offset="0" stop-color="#F1C3DA" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#F1C3DA" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="512" cy="512" r="300" fill="url(#well)"/>
+  <circle cx="512" cy="512" r="298" fill="none" stroke="url(#lip)" stroke-width="10"/>
+  <circle cx="512" cy="540" r="246" fill="url(#shade)"/>
+  <circle cx="512" cy="512" r="232" fill="url(#nacre)"/>
+  <circle cx="512" cy="512" r="232" fill="url(#iris)"/>
+  <ellipse cx="434" cy="422" rx="72" ry="43" transform="rotate(-32 434 422)" fill="#FFFFFF" opacity="0.95"/>
+</svg>

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Pale nacre ground -->
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FDFCFF"/>
+      <stop offset="0.55" stop-color="#F3EFFA"/>
+      <stop offset="1" stop-color="#E9EDF8"/>
+    </linearGradient>
+    <radialGradient id="ice" cx="0.12" cy="0.2" r="0.7">
+      <stop offset="0" stop-color="#CFE3FA" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#CFE3FA" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blush" cx="0.92" cy="0.88" r="0.65">
+      <stop offset="0" stop-color="#F3D2E4" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#F3D2E4" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Nacre pearl -->
+    <radialGradient id="nacre" cx="0.36" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.35" stop-color="#F7F3FC"/>
+      <stop offset="0.68" stop-color="#E2DBF0"/>
+      <stop offset="0.9" stop-color="#C6C4E0"/>
+      <stop offset="1" stop-color="#AFAACF"/>
+    </radialGradient>
+    <radialGradient id="iris" cx="0.8" cy="0.76" r="0.5">
+      <stop offset="0" stop-color="#F1C3DA" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#F1C3DA" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cool" cx="0.18" cy="0.72" r="0.45">
+      <stop offset="0" stop-color="#C3DDF5" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#C3DDF5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#CFC8E2"/>
+      <stop offset="0.55" stop-color="#E9E4F3"/>
+      <stop offset="1" stop-color="#FBF9FE"/>
+    </linearGradient>
+    <linearGradient id="lip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="1"/>
+    </linearGradient>
+    <radialGradient id="shade" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0.7" stop-color="#3A3058" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#3A3058" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#ground)"/>
+  <rect width="1024" height="1024" fill="url(#ice)"/>
+  <rect width="1024" height="1024" fill="url(#blush)"/>
+  <!-- the inlay: a shallow recess pressed into the nacre -->
+  <circle cx="512" cy="512" r="300" fill="url(#well)"/>
+  <circle cx="512" cy="512" r="298" fill="none" stroke="url(#lip)" stroke-width="8"/>
+  <circle cx="512" cy="540" r="246" fill="url(#shade)"/>
+  <!-- the pearl -->
+  <circle cx="512" cy="512" r="232" fill="url(#nacre)"/>
+  <circle cx="512" cy="512" r="232" fill="url(#cool)"/>
+  <circle cx="512" cy="512" r="232" fill="url(#iris)"/>
+  <ellipse cx="434" cy="422" rx="72" ry="43" transform="rotate(-32 434 422)" fill="#FFFFFF" opacity="0.95"/>
+</svg>

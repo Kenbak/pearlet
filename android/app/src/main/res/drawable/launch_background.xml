@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pale nacre launch window with the Pearlet mark centred. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_background" />
+    <item android:width="96dp" android:height="96dp" android:gravity="center" android:drawable="@drawable/launch_logo" />
+</layer-list>
