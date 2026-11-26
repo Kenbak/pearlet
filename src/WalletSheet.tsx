@@ -576,12 +576,47 @@ function ReviewRow({ label, value, strong = false }: { label: string; value: str
 }
 
 /** A full address, label above it, so it can be checked character by character. */
-function AddressBlock({ label, address }: { label: string; address: string }) {
+function AddressBlock({ label, address, copyLabel }: { label: string; address: string; copyLabel?: string }) {
   return (
     <View style={styles.addressBlock}>
-      <Text style={styles.reviewLabel}>{label}</Text>
+      <View style={styles.copyHeader}>
+        <Text style={styles.reviewLabel}>{label}</Text>
+        {copyLabel ? <CopyIconButton value={address} label={copyLabel} /> : null}
+      </View>
       <Text selectable style={styles.reviewAddress}>{address}</Text>
     </View>
+  );
+}
+
+/** Small copy icon next to a value; turns into a check once copied. */
+function CopyIconButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  async function copyValue() {
+    try {
+      await setClipboardString(value);
+      haptic('success');
+      setCopied(true);
+    } catch {
+      haptic('error');
+    }
+  }
+
+  return (
+    <Pressable
+      accessibilityLabel={copied ? 'Copied' : label}
+      accessibilityRole="button"
+      hitSlop={12}
+      onPress={() => void copyValue()}
+      style={({ pressed }) => [styles.copyIcon, pressed && styles.pressed]}
+    >
+      <Feather name={copied ? 'check' : 'copy'} size={16} color={copied ? palette.positive : accent} strokeWidth={2.2} />
+    </Pressable>
   );
 }
 
@@ -1532,11 +1567,9 @@ function TransferReceipt({ network, status, txid, onClose }: {
           ? 'Submitted to Pearl ' + pearlNetworks[network].label + '. Check Activity for confirmations.'
           : 'Close this sheet to refresh Activity or retry broadcasting the same transaction from your wallet.'}
       />
-      <View style={styles.addressCard}>
-        <Text style={styles.fieldLabel}>Transaction ID</Text>
-        <Text selectable style={styles.address}>{txid}</Text>
+      <View style={[styles.addressCard, styles.txidCard]}>
+        <AddressBlock label="Transaction ID" address={txid} copyLabel="Copy transaction ID" />
       </View>
-      <CopyButton value={txid} label="Copy transaction ID" copiedLabel="Copied transaction ID" secondary />
       <ExplorerButton network={network} txid={txid} />
       <SheetButton label="Done" onPress={onClose} />
     </>
@@ -2504,9 +2537,8 @@ function ActivityContent({ network, activity }: { network: PearlNetwork; activit
             <View style={styles.reviewDivider} />
           </>
         ) : null}
-        <AddressBlock label="Transaction ID" address={activity.id} />
+        <AddressBlock label="Transaction ID" address={activity.id} copyLabel="Copy transaction ID" />
       </View>
-      <CopyButton value={activity.id} label="Copy transaction ID" copiedLabel="Copied transaction ID" secondary />
       <ExplorerButton network={network} txid={activity.id} />
     </>
   );
@@ -2968,6 +3000,9 @@ const styles = StyleSheet.create({
   },
   reviewStrong: { color: ink, fontSize: 15, fontWeight: '700' },
   addressBlock: { gap: 4 },
+  copyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  copyIcon: { padding: 4, margin: -4 },
+  txidCard: { alignItems: 'stretch' },
   reviewDivider: {
     height: 1,
     backgroundColor: 'rgba(22, 19, 31, 0.08)',
